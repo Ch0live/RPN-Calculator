@@ -1,0 +1,340 @@
+Reverse Polish Notation assignment - RPN 1.0
+============================================
+
+In this assignment you will make a Reverse Polish Notation (RPN) calculator.
+You can read about RPN here:
+
+  https://en.wikipedia.org/wiki/Reverse_Polish_notation
+
+The assignment will be to make an RPN calculator that runs from the command
+line as in
+
+  $ ./rpn.exe 1 2 3 + +
+  6
+
+
+Packaging
+=========
+
+Your submission should be a zip file with the following structure:
+
+  rpn-1.0.zip
+    rpn-1.0/
+      README.txt
+      Makefile
+      rpnmain.c
+      tests/
+
+If I unpack this zip file and cd into the folder I can compile the code with
+make
+
+  $ cd rpn-1.0
+  $ make
+
+which will produce an executable called rpn.exe.
+
+The README.txt describes author, date, changelog etc. It should show examples
+of usage and should explain what has or has not been implemented. Your C code
+will all be in the file rpnmain.c. The tests directory contains the test files
+from Blackboard.
+
+OSX and Linux users may want to use the following Makefile rule to create the
+zip file:
+
+  zip:
+    cd .. && zip -r rpn-1.0.zip rpn-1.0 -x rpn-1.0/.DS_Store rpn-1.0/rpn.exe
+
+Then you can run "make zip" to make the zip file.
+
+NOTE: Check your zip file before submitting it. Create the zip file then move
+it to another folder and extract it. Then cd into the folder and run "ls -A"
+to see if any other files are in there.
+
+
+Command line options
+====================
+
+Your program should tell the user its version and usage:
+
+  $ ./rpn.exe --version
+  1.0
+  $ ./rpn.exe --usage
+  ./rpn.exe --usage
+  ./rpn.exe --version
+  ./rpn.exe TOKENS...
+
+These messages as well as normal successful operation should be printed to
+stdout and the return code should be set to 0 for success. If the user runs
+the program with no arguments then the same usage message should be printed to
+stderr and the return code should be 1.
+
+
+RPN calculator
+==============
+
+Your program should be able to execute RPN instructions provided on the
+command line including four binary operators:
+
+  + Addition
+  - Substraction
+  x Multiplication
+  / Division
+
+Operands will always be integers. Valid operand strings have possibly begin
+with an ASCII minus sign "-" but otherwise consist only of ASCII digits 0-9.
+
+Evaluating RPN is done with a stack based algorithm:
+
+  https://en.wikipedia.org/wiki/Stack_(abstract_data_type)
+
+The natural way to implement a stack in C is to have an array to store the
+elements of the stack and an int variable that keeps track of the current
+stack size (how many items are in the stack).
+
+Your RPN calculator should have a maximum stack size of 10. If the user blows
+the stack by providing too many operands it should print an error message:
+
+  $ ./rpn.exe 1 2 3 4 5 6 7 8 9 10 11 + + + + + + + + + +
+  Stack overflow at "11"
+
+Note that there can be more than 10 operands provided they are interleaved
+with operators. Only if pushing an operands blows the stack should stack
+overflow be printed. You will also need to detect stack underflow:
+
+  $ ./rpn.exe 1 x
+  Stack underflow at "x"
+
+Your program should also report an error if there are multiple tokens left on
+the stack at exit:
+
+  $ ./rpn.exe 1 2 3 -
+  Tokens left on stack:
+  stack[0] = 1
+  stack[1] = -1
+
+Otherwise it should print the result of the RPN calculations to stdout.
+
+
+Division
+========
+
+The operations addition, multiplication and subtraction are always well
+defined for integers (although see the overflow section below). However
+division is more complicated. Your program will need to check for division by
+zero and also for inexact division:
+
+  $ ./rpn.exe 10 0 /
+  Zero division in 10 / 0
+  $ ./rpn.exe 10 2 2 - /
+  Zero division in 10 / 0
+  $ ./rpn.exe 10 2 /
+  5
+  $ ./rpn.exe 10 3 /
+  10 is not divisible by 3
+
+
+Integer overflow
+================
+
+Your calculator will exclusively use 4-byte (32-bit) signed integer
+arithmetic. The natural way to do this in C is using the int type. It isn't
+necessary to use the int type provided you can reproduce the behaviour of
+32-bit signed arithmetic. This means that the minimum and maximum possible
+numbers are -2147483648 and 2147483647 (-2**31 and 2**31-1). You will need to
+detect when an operand is outside of this range and print an error. Your
+calculator must work in all situations that do not overflow this arithmetic:
+
+  $ ./rpn.exe 2147483648
+  Integer overflow at token "2147483648"
+  $ ./rpn.exe -2147483648
+  -2147483648
+
+The function that I have used to parse strings for this is
+
+  /*
+   * Parse decimal string str into result.
+   *
+   * Returns 0 in the case of overflow and 1 for success.
+   * Doesn't check that the string is valid decimal literal.
+   */
+  int string_to_int(char *str, int *result)
+  {
+    long long_val = strtol(str, NULL, 10);
+    if ( (long_val == LONG_MIN && errno == ERANGE)
+        || (long_val == LONG_MAX && errno == ERANGE)
+        || long_val < INT_MIN
+        || long_val > INT_MAX) {
+      return 0;
+    }
+    *result = (int)long_val;
+    return 1;
+  }
+
+With this you can do (using pointers):
+
+  int operand;
+  if(!string_to_int(str, &operand)) {
+    ... handle overflow
+  }
+  else {
+    ... use operand
+  }
+
+You will also need to detect overflow in the various operations:
+
+  $ ./rpn.exe 2147483647 1 +
+  Integer overflow in 2147483647 + 1
+
+One way to do this is to make functions that handle the different operations
+safely checking for overflow and returning 0 or 1 to indicate success/failure.
+To help with overflow checking the limits header (#include <limits.h>)
+defines helpful constants: INT_MIN and INT_MAX which give the minimum and
+maximum possible values for the int type.
+
+You have to be careful though that you don't overflow while checking for
+overflow. For example if x and y are ints then x+y overflows if
+
+  x + y > INT_MAX
+
+However if you try to check that in C with
+
+  if(x + y > INT_MAX)
+
+Then the expression x + y will overflow and the test won't work properly.
+However if you know that y > 0 you can rearrange the expression to
+
+   if(x > INT_MAX - y)
+
+where INT_MAX - y is guaranteed not to overflow if y > 0. On the other hand if
+y < 0 there's no danger of overflowing by going over INT_MAX so instead you
+should check for overflow by going under INT_MIN. You can use this idea to
+prevent overflow in addition, subtraction and multiplication. For division the
+only possible way that overflow can occur is with:
+
+  -2147483648/-1
+
+
+Test script
+===========
+
+There is a test script on Blackboard in the folder tests.zip. You should use
+extract this in the folder with your code. Then from within the root (rpn-1.0)
+directory of your code you can run the tests with
+
+  $ python tests/runtests.py -q
+  ....................................................
+  Passed 52/52 tests
+  0 fails
+
+The test script can be run with or without the -q flag (for quiet) or the -k
+flag (for keep going) as needed. You can see this if you run it with --help
+
+  $ python tests/runtests.py --help
+  Usage: runtests.py [options]
+
+  Options:
+    -h, --help        show this help message and exit
+    -q, --quiet       Show more information
+    -k, --keep-going  Continue running all tests
+
+If you add the following rule to your Makefile then you can run the tests with
+"make test":
+
+  test: rpn.exe
+    python tests/runtests.py
+
+This rule depends on rpn.exe so it will ensure that your program is compiled
+before running the tests.
+
+If you look in the file tests/tests.txt you can see what is being tested.
+
+NOTE: Don't edit the test code. In the past some students have changed the
+tests to get them to pass. When marking we will test with different test
+files.
+
+NOTE: Don't hard code the examples tested for. They are just examples - when
+marking we will test with different examples.
+
+
+Marks breakdown
+===============
+
+60% of the marks for this assignment are for having correct output (i.e.
+passing the tests). The remaining 40% are for the quality of your code. Good
+quality code features several things:
+
+Consistent indentation. Poorly indented code is very hard to read. Don't try
+to fix the indentation at the end - keep the indentation good the whole
+time.
+
+Good comments to explain what's going on in the code. A big comment near the
+top of your code should explain the general layout - which functions do what
+and why.
+
+Throughout things that are *not obvious* should be explained with comments.
+That could mean having a comment that summarises what a number of lines
+below do. It could also mean a more meaningful explanation of what some
+cryptic code does. Stating the obvious in a comment does not help someone to
+read the code. Here's a bad comment:
+
+  /* Loop i from 1 to 10 */
+  for(int i=0; i<10 i++)
+
+What's wrong with this comment? Firstly the loop is from 0 to 9 so the comment
+is inaccurate. Secondly if we fix it so that it says from 0 to 9 it is still
+stating the obvious. I can see the line below and if I understand C then I
+know that it means a loop with i from 0 to 9. A better comment might be
+
+  /* Loop through the input tokens */
+  for(int token_number = 0; token_number < total_tokens; token_number++)
+
+Your program should also have good variable names. While it is often okay to
+have throwaway variables like "int i" for a small loop, in any larger block of
+code it will become hard to decifer what i, j, k etc are supposed to be.
+
+Good use of functions to eliminate repetition and break the program down
+into small understandable pieces. The functions should have reasonable
+signatures so that they are reusable (you could use the same function in a
+different program without needing to change it).
+
+Functions should also have good, meaningful names. The style I want to see is
+names that are words separated by underscores e.g. get_input. I do now want to
+see camel-case getInput or GetInput. Those are the conventions in Java, not in
+C. Think carefully about the names of your functions: should it be a noun or a
+verb or even a question? The names should communicate the intent or effect of
+the function so that I can understand what it does just by looking at where
+the functions is *called*.
+
+If you have a number of similar functions give them similar names in a
+systematic way e.g. handle_add and handle_sub. Note here I'm shortening
+addition to add which is okay in some contexts where the shortened name is
+common. Generally though longer names such as handle_addition are preferred.
+
+The idea of "code quality" is generally driven by two important properties
+that we want from code: it should be readable and it should be maintainable.
+Since code is generally read more than it is written (even while it is being
+written) producing readable code straight away saves a lot of time.
+Maintainable code is readable but is also written in such a way that the
+different parts of the code can be easily modified in isolation. It should be
+possible to fix one part without breaking another. See
+
+  https://en.wikipedia.org/wiki/Spaghetti_code
+
+Global variables are bad - they lead to spaghetti code. Note that global
+*constants* are fine. It is only a global variable that changes while your
+program runs that is bad. You will be penalised for having any global
+variables in your code. The different functions should interact using
+arguments and return values not using global variables. Note that there are
+some situations where global variables are necessary/useful but they will not
+occur during this assignment.
+
+Writing good code requires some element of design / planning. Before you begin
+writing think how you would structure it: what functions will you have? What
+will be their signatures etc? Don't be afraid to clean up messy code by
+rewriting everything after you've finished - it doesn't take as long as you
+think. Professional code is often written first as a proof of concept and then
+rewritten perhaps multiple times until it becomes sensibly organised.
+
+This assignment is not so big that there is any excuse for messy code. My
+version is 200 lines long (including comments and blank lines) and has about
+10 functions.
